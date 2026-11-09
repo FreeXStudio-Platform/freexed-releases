@@ -1,0 +1,78 @@
+name: Verify and attest release
+
+# Runs when a release is published (or by hand for an existing tag). It downloads the
+# release's files, checks them against the checksums committed under releases/<tag>/,
+# regenerates the SBOM and compares it, blocks personal build details, and then signs
+# Sigstore attestations for the archive and its SBOM. Any failure stops the attestation.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to verify and attest, for example v2.2.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: verify-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Download the release files
+        run: |
+          set -euo pipefail
+          test -d "releases/$TAG" || { echo "releases/$TAG is missing from the repository"; exit 1; }
+          mkdir dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist
+          ls -l dist
+
+      - name: Check every file against the committed checksums
+        run: |
+          set -euo pipefail
+          cmp "releases/$TAG/SHA256SUMS" dist/SHA256SUMS
+          (cd dist && sha256sum -c SHA256SUMS)
+          # Every published file except SHA256SUMS itself must be listed.
+          for f in dist/*; do
+            n=$(basename "$f"); [ "$n" = SHA256SUMS ] && continue
+            grep -q "  $n\$" dist/SHA256SUMS || { echo "$n is not in SHA256SUMS"; exit 1; }
+          done
+
+      - name: Regenerate the SBOM and compare
+        run: |
+          set -euo pipefail
+          zip=$(ls dist/*-macOS.zip); sbom="${zip%.zip}.sbom.cdx.json"
+          ts=$(jq -r .metadata.timestamp "$sbom"); ver=$(jq -r .metadata.component.version "$sbom")
+          python3 -I tools/sbom.py "$zip" --version "$ver" --timestamp "$ts" | diff - "$sbom"
+          echo "ZIP=$zip" >> "$GITHUB_ENV"; echo "SBOM=$sbom" >> "$GITHUB_ENV"
+
+      - name: Block personal build details
+        run: python3 -I tools/privacy_check.py "$ZIP" --allow-email admin@freexstudio.com
+
+      - name: Attest the archive
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ env.ZIP }}
+
+      - name: Attest the SBOM
+        uses: actions/attest-sbom@v2
+        with:
+          subject-path: ${{ env.ZIP }}
+          sbom-path: ${{ env.SBOM }}

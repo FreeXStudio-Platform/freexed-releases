@@ -1,0 +1,43 @@
+name: Bug report
+description: Something in FreeXed does not work as described.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: From the About window, for example 2.0.0-beta.9.
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac model
+      placeholder: macOS 15.1, MacBook Air M2
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did you use it?
+      options: [App window, FRX It Finder Quick Action, Both or not sure]
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: Steps to reproduce help most.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log excerpt
+      description: The message FreeXed showed. Remove file names or paths you consider private.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: This is not a security problem (those go to a private report, see SECURITY.md).
+          required: true
